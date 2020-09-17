@@ -1,54 +1,72 @@
-Locked Queue uses locks and conditions to block
-when queue is empty, or it is full. Just as
-locks are inherently vulnerable to deadlock,
-Condition objects are inherently vulnerable to
-lost wakeups in which one or more threads wait
-forever without realizing that the condition
-for which they are waiting has become true.
+Simple Read-write Lock uses a counter and a
+boolean flag to keep track of multiple readers
+and a writer, but does not prioritize writers.
+A common lock is used to ensure internal
+updates happen atomically and a common
+condition is used for indicating either "no
+reader" or "no writer".
 
-This queue signals "not empty" whenever an item
-is added to the queue, and "not full" whenever
-an item is removed from the queue. However,
-consider an optimization, where you only signal
-"not empty" if the queue was empty. Bang! Lost
-wakeup is suddenly possible.
+Acquiring the read lock involves holding the
+common lock, waiting until there is no writer,
+and finally incrementing the readers count.
+Releasing the read lock involves holding the
+common lock, decrementing the reader count, and
+signalling any writer/readers.
 
-To see how that is possible, consider 2
-consumers A & B and 2 producers C & D. When
-queue is empty and both A & B have to remove(),
-they are blocked until C or D can add(). If C
-add()s, followed by D, only 1 "not empty"
-condition would be active causing C to wakeup,
-but not D.
+Acquiring the write lock involves holding the
+common lock, waiting until there are no writers
+and readers, and finally indicating presence of
+a writer. Releasing the write lock involves
+involves holding the common lock, indicating
+absence of writer, and signalling any
+writer/readers.
 
-Hence, one needs to be careful when working with
-both locks and condition objects.
-
-The functionality of this queue is similar to
-BlockingQueue and does not suffer from the lost
-wakeup problem.
+Even though the algorithm is correct, it is not
+quite satisfactory. If readers are much more
+frequent than writers, as is usually the case,
+the writers could be locked out for a long
+period of time by a continual stream of readers.
+Due to this lack of writer prioritization, this
+type of lock is generally only suitable for
+educational purposes.
 
 ```java
-add():
-1. Acquire lock before any action.
-2. Wait for queue being not full.
-3. Add item to queue.
-4. Release the lock.
+readLock().lock():
+1. Acquire common lock.
+2. Wait until there is no writer.
+3. Increment readers count.
+4. Release common lock.
 ```
 
 ```java
-remove():
-1. Acquire lock before any action.
-2. Wait for queue being not empty.
-3. Remove item from queue.
-4. Release the lock.
+readLock().unlock():
+1. Acquire common lock.
+2. Decrement readers count.
+3. If no readers, signal any writer/readers.
+4. Release common lock.
 ```
 
-See [LockedQueue.java] for code, [Main.java] for test, and [repl.it] for output.
+```java
+writeLock().lock():
+1. Acquire common lock.
+2. Wait until there is no writer, reader.
+3. Indicate presence of writer.
+4. Release common lock.
+```
 
-[LockedQueue.java]: https://repl.it/@wolfram77/locked-queue#LockedQueue.java
-[Main.java]: https://repl.it/@wolfram77/locked-queue#Main.java
-[repl.it]: https://locked-queue.wolfram77.repl.run
+```java
+writeLock().unlock():
+1. Acquire common lock.
+2. Indicate absence of writer.
+3. Signal any writer/readers.
+4. Release common lock.
+```
+
+See [SimpleReadWriteLock.java] for code, [Main.java] for test, and [repl.it] for output.
+
+[SimpleReadWriteLock.java]: https://repl.it/@wolfram77/simple-read-write-lock#SimpleReadWriteLock.java
+[Main.java]: https://repl.it/@wolfram77/simple-read-write-lock#Main.java
+[repl.it]: https://simple-read-write-lock.wolfram77.repl.run
 
 
 ### references
