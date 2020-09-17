@@ -1,79 +1,126 @@
-import java.util.concurrent.*;
 import java.util.concurrent.locks.*;
-import java.util.concurrent.atomic.*;
 
-// Test-and-set Lock uses an atomic value for
-// indicating that some thread has engaged the lock
-// and is executing its critical section (CS).
+// Simple Read-write Lock uses a counter and a
+// boolean flag to keep track of multiple readers
+// and a writer, but does not prioritize writers.
+// A common lock is used to ensure internal
+// updates happen atomically and a common
+// condition is used for indicating either "no
+// reader" or "no writer".
 // 
-// Each thread that wants to enter CS tries
-// to engage lock, and checks to see if it was
-// the one who managed to engage it (with an
-// atomic operation). This has no effect if
-// it was already engaged. If it managed to
-// engage it, it proceeds to its CS, otherwise
-// it just retries.
+// Acquiring the read lock involves holding the
+// common lock, waiting until there is no writer,
+// and finally incrementing the readers count.
+// Releasing the read lock involves holding the
+// common lock, decrementing the reader count, and
+// signalling any writer/readers.
 // 
-// Once the thread is done with CS, it simply
-// disengages the lock.
+// Acquiring the write lock involves holding the
+// common lock, waiting until there are no writers
+// and readers, and finally indicating presence of
+// a writer. Releasing the write lock involves
+// involves holding the common lock, indicating
+// absence of writer, and signalling any
+// writer/readers.
 // 
-// As all thread repeatedly attempt to engage the
-// lock for themselves, it leads a storm on the
-// processor memory bus (since the atomic operation
-// ignores the cache). Since bus traffic is always
-// high, it makes it difficult for the lock holder
-// to disengage his lock (due to traffic). Also
-// this scheme does not provide first-come-first-
-// served fairness. Hence, this type of lock is
-// only suitable for educational purposes.
+// Even though the algorithm is correct, it is not
+// quite satisfactory. If readers are much more
+// frequent than writers, as is usually the case,
+// the writers could be locked out for a long
+// period of time by a continual stream of readers.
+// Due to this lack of writer prioritization, this
+// type of lock is generally only suitable for
+// educational purposes.
 
-class TASLock implements Lock {
-  AtomicBoolean locked;
-  // locked: indicates if lock is engaged
+class SimpleReadWriteLock implements ReadWriteLock {
+  Lock lock;
+  Condition condition;
+  Lock readLock, writeLock;
+  int readers;
+  boolean writer;
+  // lock: common lock
+  // condition: indicates "no reader"/"no writer"
+  // readers: number of readers accessing
+  // writer: indicates if writer is accessing
 
-  public TASLock() {
-    locked = new AtomicBoolean(false);
-  }
-
-  // 1. When thread wants to access critical
-  //    section, it tries to engage lock, for
-  //    itself, with an atomic operation. This
-  //    has no effect if it was already engaged.
-  //    If it managed to engage it, it proceeds
-  //    to its CS.
-  // 2. If not, it retries again.
-  @Override
-  public void lock() {
-    while(locked.getAndSet(true)) Thread.yield(); // 1, 2
-  }
-
-  // 1. When a thread is done with its critical
-  //    section, it simply sets the "locked" state
-  //    to false.
-  @Override
-  public void unlock() {
-    locked.set(false); // 1
+  public SimpleReadWriteLock() {
+    lock = new ReentrantLock();
+    condition = lock.newCondition();
+    readLock = new ReadLock();
+    writeLock = new WriteLock();
+    readers = 0;
+    writer = false;
   }
 
   @Override
-  public void lockInterruptibly() throws InterruptedException {
-    lock();
+  public Lock readLock() {
+    return readLock;
   }
 
   @Override
-  public boolean tryLock() {
-    lock();
-    return true;
+  public Lock writeLock() {
+    return writeLock;
+  }
+  
+
+  class ReadLock extends AbstractLock {
+    // 1. Acquire common lock.
+    // 2. Wait until there is no writer.
+    // 3. Increment readers count.
+    // 4. Release common lock.
+    @Override
+    public void lock() {
+      lock.lock(); // 1
+      try {
+        while (writer) condition.await(); // 2
+        readers++; // 3
+      }
+      catch (InterruptedException e) {}
+      finally { lock.unlock(); } // 4
+    }
+  
+    // 1. Acquire common lock.
+    // 2. Decrement readers count.
+    // 3. If no readers, signal any writer/readers.
+    // 4. Release common lock.
+    @Override
+    public void unlock() {
+      lock.lock(); // 1
+      readers--; // 2
+      if (readers == 0) condition.signalAll(); // 3
+      lock.unlock(); // 4
+    }
   }
 
-  @Override
-  public boolean tryLock(long arg0, TimeUnit arg1) throws InterruptedException {
-    lock();
-    return true;
-  }
 
-  @Override
-  public Condition newCondition() {
-    return null;
+  class WriteLock extends AbstractLock {
+    // 1. Acquire common lock.
+    // 2. Wait until there is no writer, reader.
+    // 3. Indicate presence of writer.
+    // 4. Release common lock.
+    @Override
+    public void lock() {
+      lock.lock(); // 1
+      try {
+        while (writer || readers > 0) // 2
+          condition.await();          // 2
+        writer = true; // 3
+      }
+      catch (InterruptedException e) {}
+      finally { lock.unlock(); } // 4
+    }
+  
+    // 1. Acquire common lock.
+    // 2. Indicate absence of writer.
+    // 3. Signal any writer/readers.
+    // 4. Release common lock.
+    @Override
+    public void unlock() {
+      lock.lock(); // 1
+      writer = false; // 2
+      condition.signalAll(); // 3
+      lock.unlock(); // 4
+    }
   }
 }
+
