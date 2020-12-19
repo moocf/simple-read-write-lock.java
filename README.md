@@ -30,6 +30,11 @@ Due to this lack of writer prioritization, this
 type of lock is generally only suitable for
 educational purposes.
 
+> **Course**: [Concurrent Data Structures], Monsoon 2020\
+> **Taught by**: Prof. Govindarajulu Regeti
+
+[Concurrent Data Structures]: https://github.com/iiithf/concurrent-data-structures
+
 ```java
 readLock().lock():
 1. Acquire common lock.
